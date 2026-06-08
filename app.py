@@ -30,8 +30,8 @@ st.set_page_config(page_title="Kohinoor AI", page_icon="💎",
                    layout="wide", initial_sidebar_state="expanded")
 
 # Google Analytics + Search Console verification
-st.markdown('''
-<meta name="google-site-verification" content="IXBB90NUQgEXodWMCfcxQea_gEpALq8eeylqiGjktTU" />
+import streamlit.components.v1 as _stc_ga
+_stc_ga.html('''
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-DRBLPK7R7T"></script>
 <script>
   window.dataLayer = window.dataLayer || [];
@@ -39,7 +39,7 @@ st.markdown('''
   gtag('js', new Date());
   gtag('config', 'G-DRBLPK7R7T');
 </script>
-''', unsafe_allow_html=True)
+''', height=0)
 
 # ── GEMINI ────────────────────────────────────────────────────
 def configure_gemini():
