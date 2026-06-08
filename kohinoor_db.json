@@ -1,0 +1,200 @@
+{
+    "user": {
+        "plan": "Free",
+        "questions": 15,
+        "streak": 1,
+        "badge": "None",
+        "qs_limit": 15,
+        "groups": [],
+        "mode": "Normal",
+        "teacher_on": false,
+        "custom_sys": "",
+        "last_reset": "",
+        "hindi_on": false,
+        "voice_on": false,
+        "ghost_on": false,
+        "group_members": {
+            "ABCD": [
+                "HI"
+            ]
+        },
+        "group_purchases": 0,
+        "plan_expiry": null,
+        "plan_source": "",
+        "password": "",
+        "email": "",
+        "created_at": ""
+    },
+    "groups": {
+        "plan": "Free",
+        "qs_limit": 15,
+        "streak": 0,
+        "badge": "None",
+        "groups": [],
+        "mode": "Normal",
+        "teacher_on": false,
+        "custom_sys": "",
+        "last_reset": "",
+        "hindi_on": false,
+        "voice_on": false,
+        "ghost_on": false,
+        "group_members": {
+            "ABCD": [
+                "HI"
+            ]
+        },
+        "group_purchases": 0,
+        "plan_expiry": null,
+        "plan_source": "",
+        "password": "",
+        "email": "",
+        "created_at": ""
+    },
+    "Arjun": {
+        "plan": "Free",
+        "questions": 15,
+        "streak": 1,
+        "badge": "None",
+        "groups": [],
+        "qs_limit": 15,
+        "mode": "Normal",
+        "teacher_on": false,
+        "custom_sys": "",
+        "last_reset": "",
+        "hindi_on": false,
+        "voice_on": false,
+        "ghost_on": false,
+        "group_members": {
+            "ABCD": [
+                "HI"
+            ]
+        },
+        "group_purchases": 0,
+        "plan_expiry": null,
+        "plan_source": "",
+        "password": "",
+        "email": "",
+        "created_at": ""
+    },
+    "ARJUN": {
+        "plan": "Free",
+        "qs": 15,
+        "streak": 0,
+        "groups": [],
+        "qs_limit": 15,
+        "badge": "None",
+        "mode": "Normal",
+        "teacher_on": false,
+        "custom_sys": "",
+        "last_reset": "",
+        "hindi_on": false,
+        "voice_on": false,
+        "ghost_on": false,
+        "group_members": {
+            "ABCD": [
+                "HI"
+            ]
+        },
+        "group_purchases": 0,
+        "plan_expiry": null,
+        "plan_source": "",
+        "password": "",
+        "email": "",
+        "created_at": ""
+    },
+    "HI": {
+        "plan": "Free",
+        "qs": 15,
+        "streak": 0,
+        "groups": [
+            "ABCD"
+        ],
+        "qs_limit": 15,
+        "badge": "None",
+        "mode": "Normal",
+        "teacher_on": false,
+        "custom_sys": "",
+        "last_reset": "2026-03-19",
+        "hindi_on": false,
+        "voice_on": false,
+        "ghost_on": false,
+        "group_members": {
+            "ABCD": [
+                "HI"
+            ]
+        },
+        "group_purchases": 0,
+        "plan_expiry": null,
+        "plan_source": "",
+        "password": "",
+        "email": "",
+        "created_at": ""
+    },
+    "_guest_": {
+        "plan": "Free",
+        "qs_limit": 15,
+        "streak": 0,
+        "badge": "None",
+        "groups": [],
+        "mode": "Normal",
+        "teacher_on": false,
+        "custom_sys": "",
+        "last_reset": "2026-03-19",
+        "hindi_on": false,
+        "voice_on": false,
+        "ghost_on": false,
+        "group_members": {
+            "ABCD": [
+                "HI"
+            ]
+        },
+        "group_purchases": 0,
+        "plan_expiry": null,
+        "plan_source": "",
+        "password": "",
+        "email": "",
+        "created_at": ""
+    },
+    "arjun.fernandes.ahs@gmail.com": {
+        "plan": "Free",
+        "qs_limit": 15,
+        "streak": 0,
+        "badge": "None",
+        "groups": [],
+        "hindi_on": false,
+        "teacher_on": false,
+        "voice_on": false,
+        "ghost_on": false,
+        "last_reset": "2026-03-19",
+        "group_members": {
+            "ABCD": [
+                "HI"
+            ]
+        },
+        "group_purchases": 0,
+        "plan_expiry": null,
+        "plan_source": "",
+        "password": "",
+        "email": "",
+        "created_at": ""
+    },
+    "Arjun_Admin": {
+        "plan": "Free",
+        "qs_limit": 12,
+        "streak": 2,
+        "badge": "None",
+        "groups": [],
+        "group_members": {},
+        "group_purchases": 0,
+        "hindi_on": false,
+        "teacher_on": false,
+        "voice_on": false,
+        "ghost_on": false,
+        "last_reset": "2026-06-08",
+        "plan_expiry": null,
+        "plan_source": "",
+        "password": "9d03f66bcfd5b739073f1395ebe9cb47d29ff0d6597662b2982ac25785619dfb",
+        "email": "arjun.fernandes.ahs@gmail.com",
+        "created_at": "2026-06-08"
+    }
+}
