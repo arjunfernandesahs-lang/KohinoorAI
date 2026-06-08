@@ -29,8 +29,17 @@ LOGO_B64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABt
 st.set_page_config(page_title="Kohinoor AI", page_icon="💎",
                    layout="wide", initial_sidebar_state="expanded")
 
-# Google Search Console verification
-st.markdown('<meta name="google-site-verification" content="IXBB90NUQgEXodWMCfcxQea_gEpALq8eeylqiGjktTU" />', unsafe_allow_html=True)
+# Google Analytics + Search Console verification
+st.markdown('''
+<meta name="google-site-verification" content="IXBB90NUQgEXodWMCfcxQea_gEpALq8eeylqiGjktTU" />
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-DRBLPK7R7T"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-DRBLPK7R7T');
+</script>
+''', unsafe_allow_html=True)
 
 # ── GEMINI ────────────────────────────────────────────────────
 def configure_gemini():
