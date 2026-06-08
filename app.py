@@ -31,11 +31,19 @@ st.set_page_config(page_title="Kohinoor AI", page_icon="💎",
 
 # ── GEMINI ────────────────────────────────────────────────────
 def configure_gemini():
-    try:    secret_key = st.secrets.get("GEMINI_API_KEY")
-    except: secret_key = None
-    api_key = secret_key or os.environ.get("GEMINI_API_KEY") or "YOUR_GEMINI_API_KEY_HERE"
-    if api_key == "YOUR_GEMINI_API_KEY_HERE":
-        st.error("⚠️ No Gemini API key. Add to `.streamlit/secrets.toml`:\n```\nGEMINI_API_KEY = 'your_key'\n```")
+    secret_key = None
+    # Try st.secrets first
+    try:
+        if "GEMINI_API_KEY" in st.secrets:
+            secret_key = st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        pass
+    # Fallback to environment variable
+    if not secret_key:
+        secret_key = os.environ.get("GEMINI_API_KEY", "")
+    api_key = secret_key.strip() if secret_key else ""
+    if not api_key:
+        st.error("⚠️ No Gemini API key found. Add GEMINI_API_KEY to `.streamlit/secrets.toml`")
         return None
     try:
         genai.configure(api_key=api_key)
