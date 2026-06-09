@@ -15,8 +15,8 @@ import json, os, time
 from datetime import datetime
 try:
     import pytz
-    _PT = pytz.timezone("America/Los_Angeles")
-    def _today_pt(): return datetime.now(_PT).strftime("%Y-%m-%d")
+    _IST = pytz.timezone("Asia/Kolkata")
+    def _today_pt(): return (datetime.now(_IST) - __import__('datetime').timedelta(hours=12)).strftime("%Y-%m-%d")
 except ImportError:
     def _today_pt(): return time.strftime("%Y-%m-%d")  # fallback
 import google.generativeai as genai
@@ -113,6 +113,47 @@ def get_upgrade_price(current_plan: str, target_plan: str) -> tuple:
 # ── DATABASE ──────────────────────────────────────────────────
 DB_FILE    = "kohinoor_db.json"
 
+# ── FIREBASE SETUP ────────────────────────────────────────────
+def _init_firebase():
+    try:
+        import firebase_admin
+        from firebase_admin import credentials, db as fdb
+        if not firebase_admin._apps:
+            import json, os
+            # Load credentials from Streamlit secrets
+            try:
+                fb_creds = dict(st.secrets["firebase"])
+                # Fix newlines in private key
+                fb_creds["private_key"] = fb_creds["private_key"].replace("\n", "\n")
+                cred = credentials.Certificate(fb_creds)
+            except Exception:
+                return None
+            firebase_admin.initialize_app(cred, {
+                "databaseURL": "https://kohinoorai-fc1d4-default-rtdb.asia-southeast1.firebasedatabase.app/"
+            })
+        return fdb
+    except Exception:
+        return None
+
+def _fb_load():
+    try:
+        fdb = _init_firebase()
+        if not fdb: return None
+        ref = fdb.reference("kohinoor_db")
+        return ref.get() or {}
+    except Exception:
+        return None
+
+def _fb_save(data):
+    try:
+        fdb = _init_firebase()
+        if not fdb: return False
+        ref = fdb.reference("kohinoor_db")
+        ref.set(data)
+        return True
+    except Exception:
+        return False
+
 DEFAULT_USER = {
     "plan":"Free","qs_limit":15,"streak":0,"badge":"None",
     "groups":[],"group_members":{},"group_purchases":0,
@@ -134,19 +175,31 @@ def badge_for(s):
     return b
 
 def load_db():
-    if not os.path.exists(DB_FILE): return {}
-    with open(DB_FILE) as f:
-        try: data=json.load(f)
-        except: data={}
-    if not isinstance(data,dict): data={}
+    # Try Firebase first
+    data = _fb_load()
+    if data is None:
+        # Fallback to local JSON
+        if not os.path.exists(DB_FILE):
+            data = {}
+        else:
+            with open(DB_FILE) as f:
+                try: data = json.load(f)
+                except: data = {}
+    if not isinstance(data, dict): data = {}
     for u in list(data.keys()):
-        if not isinstance(data[u],dict): data[u]={}
-        for k,v in DEFAULT_USER.items():
-            if k not in data[u]: data[u][k]=v
+        if not isinstance(data[u], dict): data[u] = {}
+        for k, v in DEFAULT_USER.items():
+            if k not in data[u]: data[u][k] = v
     return data
 
 def save_db(data):
-    with open(DB_FILE,"w") as f: json.dump(data,f,indent=4)
+    # Save to Firebase
+    _fb_save(data)
+    # Also save locally as backup
+    try:
+        with open(DB_FILE, "w") as f: json.dump(data, f, indent=4)
+    except Exception:
+        pass
 
 def hash_pw(pw: str) -> str:
     """SHA-256 hash of the password (no external deps)."""
@@ -156,39 +209,28 @@ def hash_pw(pw: str) -> str:
 # ── PROFANITY FILTER ──────────────────────────────────────────
 # Covers English, Hindi (romanised), and common variants/leet-speak
 _BAD_WORDS = {
-    # English
-    "fuck","fuck","fuk","f**k","f*ck","fvck","phuck","fück",
-    "shit","sh1t","sh!t","sht","shyt",
-    "bitch","b1tch","b!tch","bytch","biatch",
-    "asshole","a**hole","a$$hole","arsehole","arse",
-    "bastard","bastar","bastrd",
-    "cunt","c**t","c*nt",
-    "dick","d1ck","dik","dikk",
-    "cock","c0ck","cok",
-    "pussy","pu$$y","puss",
-    "whore","wh0re","whor",
-    "slut","sl*t","slvt",
+    # English — only clear profanity, not common words
+    "fuck","fuk","f**k","f*ck","fvck","phuck","fück","f4ck","fvk",
+    "shit","sh1t","sh!t","shyt",
+    "bitch","b1tch","b!tch","bytch","biatch","btch",
+    "asshole","a**hole","a$$hole","arsehole",
+    "bastard",
+    "cunt","c**t","c*nt","cnt",
+    "dick","d1ck","dik","dikk","dck",
+    "cock","c0ck",
+    "pussy","pu$$y",
+    "whore","wh0re","whr",
+    "slut","sl*t","slvt","slt",
     "nigger","n****r","nigga","n***a",
-    "faggot","f*ggot","fag",
-    "retard","ret*rd",
-    "idiot","moron","imbecile",
+    "faggot","f*ggot",
     "rape","rapist","raping","raped",
-    "kill","murder","suicide","die","death",   # flagged in social context
-    "porn","porno","pornography","xxx","sex","sexy","nude","naked","nsfw",
-    "ass","a**","a$$",
-    "damn","damm",
-    "hell",   # mild but included
-    "crap",
-    "piss","p1ss",
+    "porn","porno","pornography","xxx","nsfw",
     "wank","w*nk","wanker",
     "twat","tw*t",
     # Hindi / Romanised
-    "chutiya","chut","bhenchod","bsdk","bc","mc","madarchod","lund","loda","gaand",
-    "randi","harami","saala","saali","haraami","bhosdike","bhosdi","teri maa",
-    "teri behen","gandmara","gandmari","behenchod","bhosadike","madar","chod",
-    "lavda","lavde","gand","jhant","jhantoo","jhaant",
-    # Variants / leet
-    "f4ck","fuk","fvk","sht","btch","cnt","dck","ck","psy","whr","slt",
+    "chutiya","chut","bhenchod","bsdk","madarchod","lund","loda","gaand",
+    "randi","haraami","bhosdike","bhosdi","behenchod","bhosadike","chod",
+    "lavda","lavde","jhant","jhantoo","jhaant",
 }
 
 def contains_profanity(text: str) -> tuple:
@@ -303,11 +345,11 @@ def daily_reset(u, username, db):
             last_d  = date.fromisoformat(last)
             today_d = date.fromisoformat(today)
             gap = (today_d - last_d).days
-            if gap > 1:
-                # Missed at least one full day — reset streak
+            if gap > 3:
+                # Missed 3+ days — reset streak
                 u["streak"] = 0
-            # gap == 1 means consecutive day — streak is incremented
-            # when the user actually asks a question (not at reset time)
+            # gap <= 3 means within grace period — streak preserved
+            # streak increments only when user actually asks a question
         except Exception:
             pass
 
@@ -1084,6 +1126,7 @@ def payment_card(plan_name, _user=None, _u_data=None, _db=None):
 # ── AUTO-LOGIN BY EMAIL (query param ?email=...) ─────────────
 # If the browser passes ?email=x, find the matching account and log in
 if "active_user" not in st.session_state:
+    # Try auto-login from query param (email link)
     _qp_email = st.query_params.get("email", "")
     if _qp_email:
         _qp_email = _qp_email.strip().lower()
@@ -1096,6 +1139,15 @@ if "active_user" not in st.session_state:
                     st.query_params.clear()
                     st.rerun()
                     break
+
+    # Try auto-login from query param ?u=username (set on login)
+    _qp_user = st.query_params.get("u", "")
+    if _qp_user and "active_user" not in st.session_state:
+        _db_tmp = load_db()
+        if _qp_user in _db_tmp and not _qp_user.startswith("_"):
+            st.session_state.active_user = _qp_user
+            st.session_state.is_guest    = False
+            st.rerun()
 
 if "active_user" not in st.session_state:
 
@@ -1336,6 +1388,7 @@ if "active_user" not in st.session_state:
                         # No email on file — log in directly
                         st.session_state.active_user = _li_user
                         st.session_state.is_guest    = False
+                        st.query_params["u"] = _li_user
                         st.rerun()
                     else:
                         _otp = _make_otp()
@@ -1363,6 +1416,7 @@ if "active_user" not in st.session_state:
                             # Email failed — log in directly with a warning
                             st.session_state.active_user = _li_user
                             st.session_state.is_guest    = False
+                            st.query_params["u"] = _li_user
                             st.warning("Verification email couldn't be sent — logged in directly.")
                             st.rerun()
 
@@ -1385,6 +1439,7 @@ if "active_user" not in st.session_state:
                     st.session_state.active_user = _pending
                     st.session_state.is_guest    = False
                     st.session_state["li_state"] = "idle"
+                    st.query_params["u"] = _pending
                     for k in ["li_otp","li_pending","li_otp_ts"]: st.session_state.pop(k, None)
                     st.rerun()
                 else:
