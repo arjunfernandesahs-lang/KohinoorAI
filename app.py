@@ -87,14 +87,14 @@ PLANS = {
         "label":"Student 🎓", "qs_limit":50,  "price_inr":149, "price_usd":2,
         "upgrade_from":{"Free":149, "Student":149},         # full price from Free
         "color":"#138808",
-        "features":["50 questions/day","Everything in Free","✅ Teacher Mode (Oxford Formula)","Extra groups: ₹99/₹199/₹299…"],
+        "features":["50 questions/day","Everything in Free","✅ Teacher Mode","Extra groups: ₹99/₹199/₹299…"],
     },
     "Pro":     {
         "label":"Pro ✨",      "qs_limit":100, "price_inr":299, "price_usd":4,
         "upgrade_from":{"Free":299, "Student":150},         # only ₹150 difference from Student
         "upgrade_from_usd":{"Free":4, "Student":2},        # $2 difference from Student
         "color":"#FF9933",
-        "features":["100 questions/day","Everything in Student","✅ Voice Mode (TTS)","✅ Ghost Debate Mode","💎 Diamond badge instantly"],
+        "features":["100 questions/day","Everything in Student","✅ Voice Mode","✅ Ghost Debate Mode","💎 Diamond badge instantly"],
     },
 }
 PLAN_RANK   = {"Free":0,"Student":1,"Pro":2}
@@ -1344,7 +1344,7 @@ if "active_user" not in st.session_state:
         <img class="hero-logo" src="data:image/png;base64,{LOGO_B64}"
              style="height:110px;width:auto;margin-bottom:24px;" />
         <div class="hero-title">Kohinoor AI</div>
-        <div class="hero-tagline">WORLD-CLASS EDUCATIONAL AI · MADE IN INDIA</div>
+        <div class="hero-tagline">WORLD-CLASS EDUCATIONAL AI<br>🇮🇳 MADE IN INDIA</div>
         <div class="hero-sub2">Free forever · Student ₹149/mo · Pro ₹299/mo</div>
         <div class="tiranga-bar"></div>
     </div>
@@ -1588,11 +1588,11 @@ if "active_user" not in st.session_state:
     plan_html = '<div class="plans-strip">'
     for pname, plan in PLANS.items():
         css = pname.lower()
-        price = "Free" if plan["price_inr"]==0 else f'₹{plan["price_inr"]}<small>/mo</small>'
+        price = "It's absolutely free!" if plan["price_inr"]==0 else f'It costs ₹{plan["price_inr"]}<small>/mo</small>'
         feats = "".join(f"<li>{f}</li>" for f in plan["features"])
         plan_html += f"""
         <div class="plan-strip-card {css}">
-            <div class="psc-name">{plan['label']}</div>
+            <div class="psc-name">{plan['label']} Plan</div>
             <div class="psc-price">{price}</div>
             <ul class="psc-feats">{feats}</ul>
         </div>"""
