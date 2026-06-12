@@ -3317,7 +3317,26 @@ with tab_chat:
                 st.session_state["last_followups"] = get_followups(model, user_query, full_answer)
 
             except Exception as e:
-                st.error(f"❌ Gemini error: {e}")
+                _err_str = str(e)
+                if "429" in _err_str or "prepayment" in _err_str.lower() or "credits" in _err_str.lower():
+                    st.markdown("""
+                    <div style="background:rgba(198,40,40,0.1);border:1px solid rgba(198,40,40,0.4);
+                                border-radius:12px;padding:14px 16px;margin:8px 0;">
+                        <div style="font-size:1.1rem;font-weight:700;color:#EF5350;margin-bottom:6px;">
+                            ⚠️ Kohinoor AI is temporarily unavailable
+                        </div>
+                        <div style="color:#C8BCA8;font-size:0.85rem;line-height:1.6;">
+                            Our AI is running on community support. Your donations directly keep 
+                            Kohinoor AI alive and free for everyone. 🙏<br><br>
+                            <b style="color:#F0C040;">Please donate to keep the AI running:</b><br>
+                            <span style="color:#4CAF50;font-size:1rem;font-weight:700;">UPI: arjun.fernandes.ahs@okicici</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                elif "503" in _err_str or "high demand" in _err_str.lower():
+                    st.warning("⏳ Kohinoor AI is experiencing high demand right now. Please try again in a moment!")
+                else:
+                    st.error(f"❌ Gemini error: {e}")
 
         followups = st.session_state.get("last_followups", [])
         if followups:
