@@ -2999,6 +2999,61 @@ with tab_chat:
         """, unsafe_allow_html=True)
 
 
+    # ── ⚽ Donation Stadium Bar ──────────────────────────────────
+    _don_bar_hidden = db.get("_donation_total_", {}).get("hidden", False)
+    _DON_GOAL = 800
+    _don_raised = db.get("_donation_total_", {}).get("amount", 0)
+    _don_pct = min(100, int((_don_raised / _DON_GOAL) * 100))
+    _don_remaining = max(0, _DON_GOAL - _don_raised)
+    _don_segments = 10
+    _don_filled = int(_don_pct / (_don_segments))
+
+    # Build stadium-style segment bar
+    _seg_html = ""
+    for _si in range(_don_segments):
+        if _si < _don_filled:
+            if _si < 3:   _sc = "#1565C0"   # blue (0-2)
+            elif _si < 7: _sc = "#2E7D32"   # green (3-6)
+            else:         _sc = "#C62828"   # red (7-9)
+            _seg_html += f'<div style="flex:1;height:100%;background:{_sc};border-radius:2px;margin:0 1px;box-shadow:0 0 6px {_sc}88;"></div>'
+        else:
+            _seg_html += f'<div style="flex:1;height:100%;background:rgba(255,255,255,0.06);border-radius:2px;margin:0 1px;"></div>'
+
+    if not _don_bar_hidden and _don_raised >= _DON_GOAL:
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg,rgba(21,101,192,0.15),rgba(46,125,50,0.15),rgba(198,40,40,0.15));
+                    border:1.5px solid rgba(46,125,50,0.6);border-radius:12px;
+                    padding:12px 16px;margin-bottom:8px;text-align:center;">
+            <div style="font-size:1.3rem;">🏆</div>
+            <div style="font-weight:700;color:#43a047;font-size:0.9rem;margin:2px 0;">
+                Goal reached! ₹{_don_raised} raised — Thank you! 🎉
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    elif not _don_bar_hidden:
+        st.markdown(f"""
+        <div style="background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.1);
+                    border-radius:12px;padding:11px 16px;margin-bottom:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                <span style="color:#fff;font-size:0.8rem;font-weight:700;letter-spacing:0.05em;">
+                    ⚽ SUPPORT KOHINOOR AI
+                </span>
+                <span style="font-size:0.78rem;font-weight:700;">
+                    <span style="color:#1E88E5;">₹{_don_raised}</span>
+                    <span style="color:#888;"> / </span>
+                    <span style="color:#43a047;">₹{_DON_GOAL}</span>
+                </span>
+            </div>
+            <div style="display:flex;height:14px;border-radius:4px;overflow:hidden;margin-bottom:6px;border:1px solid rgba(255,255,255,0.08);">
+                {_seg_html}
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <span style="color:#9E9E9E;font-size:0.7rem;">₹{_don_remaining} to go — every rupee keeps the AI running 🙏</span>
+                <span style="color:#C62828;font-size:0.7rem;font-weight:700;">UPI: arjun.fernandes.ahs@okicici</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
     # Active mode chips
     chips = []
     if active_mode=="Ghost":   chips.append('<span class="mode-chip ghost">👻 Ghost Debate</span>')
@@ -5211,6 +5266,26 @@ with tab_settings:
         </div>
     </div>
     """.format(user), unsafe_allow_html=True)
+
+    # ── Admin donation updater (only visible to owner) ──────────
+    _OWNER_ACCOUNTS = ["shail", "shailendra", "admin", "kohinoor", "arjun_admin", "Arjun_Admin"]
+    if user.lower() in _OWNER_ACCOUNTS or u_data.get("email","").lower() == "admin.kohinoorai.in@gmail.com":
+        st.markdown("---")
+        st.markdown("### 💰 Update Donation Total")
+        _cur_don = db.get("_donation_total_", {}).get("amount", 0)
+        _new_don = st.number_input(f"Current: ₹{_cur_don} — Enter new total (₹):", min_value=0, max_value=800, value=_cur_don, step=10, key="don_input")
+        if st.button("💾 Save Donation Amount", key="save_don"):
+            db["_donation_total_"] = {"amount": _new_don}
+            save_db(db)
+            st.success(f"✅ Donation total updated to ₹{_new_don}")
+            st.rerun()
+        _don_hidden = db.get("_donation_total_", {}).get("hidden", False)
+        _don_hide_lbl = "👁️ Show Donation Bar" if _don_hidden else "🙈 Hide Donation Bar"
+        if st.button(_don_hide_lbl, key="toggle_don"):
+            db.setdefault("_donation_total_", {})["hidden"] = not _don_hidden
+            save_db(db)
+            st.rerun()
+        st.markdown("---")
 
     s_tab1, s_tab2, s_tab3 = st.tabs(["✏️ Change Username", "🔑 Change Password", "📧 Change Email"])
 
