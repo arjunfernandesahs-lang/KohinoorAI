@@ -329,8 +329,32 @@ def daily_reset(u, username, db):
     today = _today_pt()
     last  = u.get("last_reset", "")
 
+    # ── Promo feature sync runs on EVERY call, regardless of daily reset ──
+    # (kept separate from the once-per-day block below so an admin toggling
+    # the promo mid-day takes effect immediately for every user)
+    _promo_active = db.get("_free_pro_week_", {}).get("active", False)
+    _promo_exp    = u.get("promo_expiry", "")
+    _promo_valid  = False
+    if _promo_active and _promo_exp:
+        try:
+            from datetime import date
+            _promo_valid = date.today() <= date.fromisoformat(_promo_exp)
+        except Exception:
+            _promo_valid = False
+    if _promo_valid:
+        if not u.get("promo_features") or u.get("qs_limit", 0) > 10:
+            u["qs_limit"] = 10
+        u["promo_features"] = True
+        u["badge"] = DIAMOND_BADGE
+    else:
+        if u.get("promo_features"):
+            u["promo_features"] = False
+            u["promo_expiry"]   = ""
+            u["qs_limit"]       = PLANS.get(u.get("plan","Free"), PLANS["Free"])["qs_limit"]
+            u["badge"]          = badge_for(u.get("streak", 0))
+
     if last == today:
-        return  # already reset today, nothing to do
+        return  # already did the once-a-day work below, nothing more to do
 
     # ── Check plan expiry ─────────────────────────────────────
     expiry = u.get("plan_expiry")
@@ -367,26 +391,13 @@ def daily_reset(u, username, db):
         except Exception:
             pass
 
-    # Reset daily question limit
-    _promo_active = db.get("_free_pro_week_", {}).get("active", False)
-    _promo_exp    = u.get("promo_expiry", "")
-    _promo_valid  = False
-    if _promo_active and _promo_exp:
-        try:
-            from datetime import date
-            _promo_valid = date.today() <= date.fromisoformat(_promo_exp)
-        except Exception:
-            _promo_valid = False
-    if _promo_valid:
-        u["qs_limit"] = 10
-        u["promo_features"] = True
-    else:
+    # Reset daily question limit (promo already handled above if active)
+    if not _promo_valid:
         u["qs_limit"] = PLANS.get(u["plan"], PLANS["Free"])["qs_limit"]
-        u["promo_features"] = False
-        u["promo_expiry"]   = ""
     u["last_reset"] = today
     # Recompute badge after potential streak reset (keep Diamond if promo active)
-    u["badge"] = DIAMOND_BADGE if _promo_valid else badge_for(u["streak"])
+    if not _promo_valid:
+        u["badge"] = badge_for(u["streak"])
     if username != "_guest_":
         save_db(db)
 
@@ -1939,9 +1950,6 @@ with st.sidebar:
     # ── MODE TOGGLES ──────────────────────────────────────────
     st.markdown("### 🎛️ Modes")
     st.caption("Toggle modes on/off. Active modes stack.")
-
-    # TEMP DEBUG — remove after diagnosing
-    st.caption(f"🔧 DEBUG user={user} | promo_features={u_data.get('promo_features')} | promo_expiry={u_data.get('promo_expiry')} | plan={user_plan} | _free_pro_week_active={db.get('_free_pro_week_',{}).get('active')}")
 
     # Hindi (Free)
     hindi_on = st.toggle("🇮🇳 Hindi Mode — AI replies in Hindi", value=u_data.get("hindi_on",False), key="t_hindi")
