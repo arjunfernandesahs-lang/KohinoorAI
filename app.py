@@ -166,6 +166,7 @@ DEFAULT_USER = {
     "created_at":"",
     "session_token":"",
     "promo_expiry":"",
+    "promo_features":False,
 }
 BADGES = {0:"None",5:"🌱 Seedling",15:"📚 Scholar",30:"🔥 Flame",50:"💎 Diamond",100:"💎 Diamond"}
 DIAMOND_BADGE = "💎 Diamond"  # also awarded instantly on Pro purchase
@@ -378,11 +379,14 @@ def daily_reset(u, username, db):
             _promo_valid = False
     if _promo_valid:
         u["qs_limit"] = 10
+        u["promo_features"] = True
     else:
         u["qs_limit"] = PLANS.get(u["plan"], PLANS["Free"])["qs_limit"]
+        u["promo_features"] = False
+        u["promo_expiry"]   = ""
     u["last_reset"] = today
-    # Recompute badge after potential streak reset
-    u["badge"] = badge_for(u["streak"])
+    # Recompute badge after potential streak reset (keep Diamond if promo active)
+    u["badge"] = DIAMOND_BADGE if _promo_valid else badge_for(u["streak"])
     if username != "_guest_":
         save_db(db)
 
@@ -1667,11 +1671,13 @@ if "active_user" not in st.session_state:
                     _new_u["password"]   = hash_pw(_sp["pw"])
                     _new_u["email"]      = _sp["email"]
                     _new_u["created_at"] = _t.strftime("%Y-%m-%d")
-                    # Auto-set to exactly 10/day if promo is currently active
+                    # Auto-grant Pro features at 10/day if promo is currently active
                     if db.get("_free_pro_week_", {}).get("active", False):
                         from datetime import date, timedelta
-                        _new_u["qs_limit"]      = 10
-                        _new_u["promo_expiry"]  = (date.today() + timedelta(days=7)).isoformat()
+                        _new_u["qs_limit"]       = 10
+                        _new_u["promo_expiry"]   = (date.today() + timedelta(days=7)).isoformat()
+                        _new_u["promo_features"] = True
+                        _new_u["badge"]          = DIAMOND_BADGE
                     db[_sp["username"]] = _new_u
                     save_db(db)
                     st.session_state.active_user = _sp["username"]
@@ -1934,14 +1940,17 @@ with st.sidebar:
     st.markdown("### 🎛️ Modes")
     st.caption("Toggle modes on/off. Active modes stack.")
 
+    # TEMP DEBUG — remove after diagnosing
+    st.caption(f"🔧 DEBUG user={user} | promo_features={u_data.get('promo_features')} | promo_expiry={u_data.get('promo_expiry')} | plan={user_plan} | _free_pro_week_active={db.get('_free_pro_week_',{}).get('active')}")
+
     # Hindi (Free)
     hindi_on = st.toggle("🇮🇳 Hindi Mode — AI replies in Hindi", value=u_data.get("hindi_on",False), key="t_hindi")
     if hindi_on != u_data.get("hindi_on"):
         u_data["hindi_on"] = hindi_on
         if not is_guest: save_db(db)
 
-    # Teacher (Student+)
-    if plan_has(user_plan,"Teacher"):
+    # Teacher (Student+, or active promo week)
+    if plan_has(user_plan,"Teacher") or u_data.get("promo_features"):
         teacher_on = st.toggle("📖 Teacher Mode — Oxford Formula", value=u_data.get("teacher_on",False), key="t_teacher")
         if teacher_on != u_data.get("teacher_on"):
             u_data["teacher_on"] = teacher_on
@@ -1950,8 +1959,8 @@ with st.sidebar:
         st.markdown('<div class="mode-card"><div class="mode-title">📖 Teacher Mode <span class="mode-lock">🔒 Student plan</span></div><div class="mode-desc">Oxford Formula: Formula→Logic→Practice</div></div>', unsafe_allow_html=True)
         teacher_on = False
 
-    # Voice (Pro+)
-    if plan_has(user_plan,"Voice"):
+    # Voice (Pro+, or active promo week)
+    if plan_has(user_plan,"Voice") or u_data.get("promo_features"):
         voice_on = st.toggle("🔊 Voice Mode — Ultra-short TTS answers", value=u_data.get("voice_on",False), key="t_voice")
         if voice_on != u_data.get("voice_on"):
             u_data["voice_on"] = voice_on
@@ -1960,8 +1969,8 @@ with st.sidebar:
         st.markdown('<div class="mode-card"><div class="mode-title">🔊 Voice Mode <span class="mode-lock">🔒 Pro plan</span></div><div class="mode-desc">≤20 word answers for text-to-speech</div></div>', unsafe_allow_html=True)
         voice_on = False
 
-    # Ghost (Pro+)
-    if plan_has(user_plan,"Ghost"):
+    # Ghost (Pro+, or active promo week)
+    if plan_has(user_plan,"Ghost") or u_data.get("promo_features"):
         ghost_on = st.toggle("👻 Ghost Mode — AI debates against you", value=u_data.get("ghost_on",False), key="t_ghost")
         if ghost_on != u_data.get("ghost_on"):
             u_data["ghost_on"] = ghost_on
@@ -5446,19 +5455,30 @@ with tab_settings:
                     st.markdown(f"- **@{_uname}** — {_cnt} question{'s' if _cnt != 1 else ''}")
         st.markdown("---")
 
-        # ── 🎁 Set Everyone to Exactly 10 Questions/Day (Promo Week) ──
-        st.markdown("### 🎁 Promo Week — Exactly 10 Questions/Day (All Users)")
+        # ── 🎁 Free Pro Week — All Pro Features, 10 Questions/Day ──
+        st.markdown("### 🎁 Promo Week — Pro Features at 10 Questions/Day (All Users)")
         _promo_active = db.get("_free_pro_week_", {}).get("active", False)
         _promo_start  = db.get("_free_pro_week_", {}).get("start_date", "")
         if _promo_active:
-            st.success(f"✅ Promo week is ACTIVE — started {_promo_start}. Everyone (Free/Student/Pro) is capped at exactly 10 questions/day for 7 days.")
+            st.success(f"✅ Promo week is ACTIVE — started {_promo_start}. Everyone gets Pro features (Voice/Teacher/Ghost Mode, Diamond badge) but capped at exactly 10 questions/day for 7 days.")
             if st.button("🛑 End Promo Week", key="end_promo"):
                 db["_free_pro_week_"] = {"active": False, "start_date": _promo_start}
+                # Immediately revert every user instead of waiting for their next daily reset
+                for _euser in list(db.keys()):
+                    if _euser.startswith("_"): continue
+                    _edata = db[_euser]
+                    if not isinstance(_edata, dict): continue
+                    if _edata.get("promo_features"):
+                        _edata["promo_features"] = False
+                        _edata["promo_expiry"]   = ""
+                        _edata["qs_limit"]       = PLANS.get(_edata.get("plan","Free"), PLANS["Free"])["qs_limit"]
+                        _edata["badge"]          = badge_for(_edata.get("streak", 0))
+                        db[_euser] = _edata
                 save_db(db)
                 st.rerun()
         else:
-            st.caption("Click below to set every current user (and anyone who signs up during the next 7 days) to exactly 10 questions per day, regardless of their plan, starting today. Plan and other features stay unchanged.")
-            if st.button("🎉 Start 10-Questions Promo Week", key="start_promo"):
+            st.caption("Click below to give every current user (and anyone who signs up during the next 7 days) full Pro plan features — Voice Mode, Teacher Mode, Ghost Mode, Diamond badge — but capped at exactly 10 questions per day, starting today.")
+            if st.button("🎉 Start Pro-Features Promo Week (10q/day)", key="start_promo"):
                 _today_str = _today_pt()
                 db["_free_pro_week_"] = {"active": True, "start_date": _today_str}
                 # Set immediately for all existing real users
@@ -5469,11 +5489,13 @@ with tab_settings:
                     if _euser.startswith("_"): continue
                     _edata = db[_euser]
                     if not isinstance(_edata, dict): continue
-                    _edata["qs_limit"] = _PROMO_QS
-                    _edata["promo_expiry"] = _expiry
+                    _edata["qs_limit"]      = _PROMO_QS
+                    _edata["promo_expiry"]  = _expiry
+                    _edata["promo_features"] = True   # unlocks Voice/Teacher/Ghost mode access
+                    _edata["badge"]          = DIAMOND_BADGE
                     db[_euser] = _edata
                 save_db(db)
-                st.success(f"🎉 Promo activated — all {len([u for u in db if not u.startswith('_')])} users now set to exactly {_PROMO_QS} questions/day! Expires {_expiry}.")
+                st.success(f"🎉 Promo activated — all {len([u for u in db if not u.startswith('_')])} users now have Pro features at exactly {_PROMO_QS} questions/day! Expires {_expiry}.")
                 st.rerun()
         st.markdown("---")
 
