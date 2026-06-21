@@ -3397,6 +3397,26 @@ with tab_chat:
 
                 answer_placeholder.markdown(full_answer)
 
+                # ── 🔊 Voice Mode: actually speak the answer out loud ──
+                if u_data.get("voice_on"):
+                    import streamlit.components.v1 as _stc_tts
+                    import json as _json_tts
+                    _tts_text = full_answer.replace("`", "").replace("*", "").replace("#", "")
+                    _tts_safe = _json_tts.dumps(_tts_text)
+                    _stc_tts.html(f"""
+                    <script>
+                    (function() {{
+                        try {{
+                            const u = new SpeechSynthesisUtterance({_tts_safe});
+                            u.rate = 1.0;
+                            u.pitch = 1.0;
+                            window.speechSynthesis.cancel();
+                            window.speechSynthesis.speak(u);
+                        }} catch (e) {{}}
+                    }})();
+                    </script>
+                    """, height=0)
+
                 st.session_state.chat_hist.append(("assistant", full_answer))
                 st.session_state.gemini_hist.append({"role":"user",  "parts":[f"{system_prompt}\n\nUser: {user_query}"]})
                 st.session_state.gemini_hist.append({"role":"model", "parts":[full_answer]})
