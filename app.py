@@ -352,6 +352,7 @@ def daily_reset(u, username, db):
             u["promo_expiry"]   = ""
             u["qs_limit"]       = PLANS.get(u.get("plan","Free"), PLANS["Free"])["qs_limit"]
             u["badge"]          = badge_for(u.get("streak", 0))
+            u["_promo_ended_notice"] = True  # flag to show message once
 
     if last == today:
         return  # already did the once-a-day work below, nothing more to do
@@ -2046,7 +2047,7 @@ with st.sidebar:
                     f'<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(201,168,76,0.25);border-radius:12px;padding:14px 16px;">'
                     f'<div style="color:#F0C040;font-weight:700;margin-bottom:6px;">Group {next_n} — ₹{next_inr}/month</div>'
                     f'<a href="{_gpay_grp}" style="display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,#1a73e8,#0d47a1);color:#fff;font-weight:700;padding:11px 20px;border-radius:10px;text-decoration:none;font-size:0.88rem;">Pay ₹{next_inr} with GPay</a>'
-                    f'<div style="color:#9A8A70;font-size:0.7rem;margin-top:8px;">UPI: arjun.fernandes.ahs@okicici · Do not change the pre-filled amount.</div>'
+                    f'<div style="color:#C8BCA8;font-size:0.75rem;margin-top:8px;">UPI: <b style="color:#F0C040;">arjun.fernandes.ahs@okicici</b> · Do not change the pre-filled amount.</div>'
                     f'</div>',
                     unsafe_allow_html=True
                 )
@@ -3066,6 +3067,19 @@ with tab_chat:
             icon="⏰"
         )
 
+    # ── Promo Week Ended Notice ───────────────────────────
+    if u_data.get("_promo_ended_notice"):
+        u_data.pop("_promo_ended_notice", None)
+        if user != "_guest_":
+            db[user] = u_data
+            save_db(db)
+        st.warning(
+            "🎁 **Your free Pro week has ended.** You've been reverted back to the Free plan. "
+            "Upgrade anytime from the panel in the sidebar to unlock Voice Mode, Teacher Mode, "
+            "Ghost Mode and more questions per day.",
+            icon="🎁"
+        )
+
     # ── 800-Account Milestone Counter ────────────────────────
     _MILESTONE    = 800
     _real_users   = [u for u in db if not u.startswith("_")]
@@ -3488,7 +3502,7 @@ with tab_chat:
                             Kohinoor AI alive and free for everyone. 🙏<br><br>
                             <b style="color:#F0C040;">Please donate to keep the AI running:</b><br>
                             <span style="color:#4CAF50;font-size:1rem;font-weight:700;">UPI: arjun.fernandes.ahs@okicici</span><br><br>
-                            <span style="color:#9A8A70;font-size:0.78rem;">Please try again — if it still doesn't work, we're already on it and working to fix it. 🙏</span>
+                            <span style="color:#C8BCA8;font-size:0.78rem;">Please try again — if it still doesn't work, we're already on it and working to fix it. 🙏</span>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
@@ -5501,6 +5515,7 @@ with tab_settings:
                         _edata["promo_expiry"]   = ""
                         _edata["qs_limit"]       = PLANS.get(_edata.get("plan","Free"), PLANS["Free"])["qs_limit"]
                         _edata["badge"]          = badge_for(_edata.get("streak", 0))
+                        _edata["_promo_ended_notice"] = True
                         db[_euser] = _edata
                 save_db(db)
                 st.rerun()
