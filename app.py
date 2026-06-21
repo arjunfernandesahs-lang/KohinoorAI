@@ -11,7 +11,7 @@ Key:    .streamlit/secrets.toml  →  GEMINI_API_KEY = "..."
 """
 
 import streamlit as st
-import json, os, time
+import json, os, time, secrets
 from datetime import datetime
 try:
     import pytz
@@ -164,6 +164,8 @@ DEFAULT_USER = {
     "password":"",
     "email":"",
     "created_at":"",
+    "session_token":"",
+    "promo_expiry":"",
 }
 BADGES = {0:"None",5:"🌱 Seedling",15:"📚 Scholar",30:"🔥 Flame",50:"💎 Diamond",100:"💎 Diamond"}
 DIAMOND_BADGE = "💎 Diamond"  # also awarded instantly on Pro purchase
@@ -305,6 +307,17 @@ def _otp_email_html(title: str, body_lines: list, otp: str) -> str:
 def _make_otp() -> str:
     return str(random.randint(100000, 999999))
 
+def _issue_session_token(db, username):
+    """Generate a cryptographically random session token, store it against
+    the account, and return it so it can be put in the URL for auto-login.
+    Unlike using the username directly, this token cannot be guessed."""
+    token = secrets.token_urlsafe(32)
+    u = get_user(db, username)
+    u["session_token"] = token
+    db[username] = u
+    save_db(db)
+    return token
+
 def get_user(db,username):
     if username not in db: db[username]=dict(DEFAULT_USER)
     return db[username]
@@ -354,7 +367,19 @@ def daily_reset(u, username, db):
             pass
 
     # Reset daily question limit
-    u["qs_limit"]   = PLANS.get(u["plan"], PLANS["Free"])["qs_limit"]
+    _promo_active = db.get("_free_pro_week_", {}).get("active", False)
+    _promo_exp    = u.get("promo_expiry", "")
+    _promo_valid  = False
+    if _promo_active and _promo_exp:
+        try:
+            from datetime import date
+            _promo_valid = date.today() <= date.fromisoformat(_promo_exp)
+        except Exception:
+            _promo_valid = False
+    if _promo_valid:
+        u["qs_limit"] = 10
+    else:
+        u["qs_limit"] = PLANS.get(u["plan"], PLANS["Free"])["qs_limit"]
     u["last_reset"] = today
     # Recompute badge after potential streak reset
     u["badge"] = badge_for(u["streak"])
@@ -572,13 +597,112 @@ def build_prompt(u, username="", db=None):
     if ctx: base += "\n\n" + ctx
     return base, mode
 
+def _auto_deduct_question():
+    """Deduct one question from the logged-in user's daily limit, if applicable.
+    Called automatically by call_gemini/stream_gemini so every AI call across
+    every tab (chat, labs, math, chem, music, etc.) costs a question."""
+    try:
+        if st.session_state.get("is_guest", False):
+            return
+        _u = st.session_state.get("active_user")
+        if not _u or _u == "_guest_":
+            return
+        _db = st.session_state.get("db")
+        if _db is None:
+            return
+        _ud = get_user(_db, _u)
+        if _ud.get("qs_limit", 0) > 0:
+            _ud["qs_limit"] = max(0, _ud["qs_limit"] - 1)
+            _ud["streak"]   = _ud.get("streak", 0) + 1
+            _ud["badge"]    = badge_for(_ud["streak"])
+            _db[_u] = _ud
+            save_db(_db)
+            st.session_state.db = _db
+            _log_question_event(_u)
+    except Exception:
+        pass  # never let billing bookkeeping crash an answer
+
+QLOG_FILE = "kohinoor_qlog.json"
+
+def _load_qlog():
+    if not os.path.exists(QLOG_FILE):
+        return {}
+    try:
+        with open(QLOG_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_qlog(data):
+    try:
+        with open(QLOG_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
+def _log_question_event(username):
+    """Log one question event for analytics — who asked how many questions on which day.
+    Stored ONLY in a local file (kohinoor_qlog.json), never synced to Firebase
+    so it stays private and isn't part of the user database."""
+    try:
+        _qlog = _load_qlog()
+        _today = _today_pt()
+        _qlog.setdefault(_today, {})
+        _qlog[_today][username] = _qlog[_today].get(username, 0) + 1
+        _save_qlog(_qlog)
+    except Exception:
+        pass
+
+class DailyLimitReached(Exception):
+    """Raised when a logged-in user has 0 questions left for the day."""
+    pass
+
+def _check_question_quota():
+    """Block AI calls once a logged-in user's daily limit is used up.
+    Guests are unaffected (guests have their own separate handling)."""
+    if st.session_state.get("is_guest", False):
+        return
+    _u = st.session_state.get("active_user")
+    if not _u or _u == "_guest_":
+        return
+    _db = st.session_state.get("db")
+    if _db is None:
+        return
+    _ud = get_user(_db, _u)
+    if _ud.get("qs_limit", 0) <= 0:
+        raise DailyLimitReached("You've used all your questions for today. It resets at 12pm IST.")
+
+def _free_plan_word_limit_note():
+    """Returns a word-limit instruction if the current logged-in user is on
+    the Free plan. Applied centrally so EVERY tab/lab respects the limit,
+    not just calls that go through build_prompt()."""
+    try:
+        if st.session_state.get("is_guest", False):
+            return ""
+        _u = st.session_state.get("active_user")
+        if not _u or _u == "_guest_":
+            return ""
+        _db = st.session_state.get("db")
+        if _db is None:
+            return ""
+        _ud = get_user(_db, _u)
+        if _ud.get("plan", "Free") == "Free":
+            return "\n\nIMPORTANT: This user is on the Free plan. Keep your entire answer to a MAXIMUM of 175 words. Be concise and prioritise the most important information."
+    except Exception:
+        pass
+    return ""
+
 def call_gemini(model, prompt, query, history):
+    _check_question_quota()
     sys = prompt.strip() if prompt.strip() else FULL_SYSTEM_BASE
+    sys = sys + _free_plan_word_limit_note()
     msg = f"{sys}\n\n━━━ USER QUERY ━━━\n{query}"
     msgs = (list(history)+[{"role":"user","parts":[msg]}]) if history else [{"role":"user","parts":[msg]}]
     for attempt in range(3):
         try:
-            return model.generate_content(msgs).text
+            result = model.generate_content(msgs).text
+            _auto_deduct_question()
+            return result
         except Exception as e:
             if attempt < 2 and ("503" in str(e) or "high demand" in str(e).lower()):
                 time.sleep(3)
@@ -586,7 +710,9 @@ def call_gemini(model, prompt, query, history):
                 raise
 
 def stream_gemini(model, prompt, query, history):
+    _check_question_quota()
     sys = prompt.strip() if prompt.strip() else FULL_SYSTEM_BASE
+    sys = sys + _free_plan_word_limit_note()
     msg = f"{sys}\n\n━━━ USER QUERY ━━━\n{query}"
     msgs = (list(history)+[{"role":"user","parts":[msg]}]) if history else [{"role":"user","parts":[msg]}]
     for attempt in range(3):
@@ -595,6 +721,7 @@ def stream_gemini(model, prompt, query, history):
             for chunk in response:
                 if chunk.text:
                     yield chunk.text
+            _auto_deduct_question()
             return
         except Exception as e:
             if attempt < 2 and ("503" in str(e) or "high demand" in str(e).lower()):
@@ -1123,31 +1250,23 @@ def payment_card(plan_name, _user=None, _u_data=None, _db=None):
                         st.rerun()
 
 # ── CINEMATIC LANDING PAGE ────────────────────────────────────
-# ── AUTO-LOGIN BY EMAIL (query param ?email=...) ─────────────
-# If the browser passes ?email=x, find the matching account and log in
+# ── SECURE AUTO-LOGIN (query param ?t=<random session token>) ──
+# The token is a long random string generated at login time and stored
+# against the account server-side — it cannot be guessed or forged,
+# unlike using the raw username/email in the URL.
 if "active_user" not in st.session_state:
-    # Try auto-login from query param (email link)
-    _qp_email = st.query_params.get("email", "")
-    if _qp_email:
-        _qp_email = _qp_email.strip().lower()
+    _qp_token = st.query_params.get("t", "")
+    if _qp_token:
         _db_tmp = load_db()
         for _eu, _ed in _db_tmp.items():
             if not _eu.startswith("_") and isinstance(_ed, dict):
-                if _ed.get("email", "").lower() == _qp_email and _ed.get("password", ""):
+                if _ed.get("session_token", "") and _ed.get("session_token") == _qp_token:
                     st.session_state.active_user = _eu
                     st.session_state.is_guest    = False
-                    st.query_params.clear()
                     st.rerun()
                     break
 
-    # Try auto-login from query param ?u=username (set on login)
-    _qp_user = st.query_params.get("u", "")
-    if _qp_user and "active_user" not in st.session_state:
-        _db_tmp = load_db()
-        if _qp_user in _db_tmp and not _qp_user.startswith("_"):
-            st.session_state.active_user = _qp_user
-            st.session_state.is_guest    = False
-            st.rerun()
+
 
 if "active_user" not in st.session_state:
 
@@ -1388,7 +1507,7 @@ if "active_user" not in st.session_state:
                         # No email on file — log in directly
                         st.session_state.active_user = _li_user
                         st.session_state.is_guest    = False
-                        st.query_params["u"] = _li_user
+                        st.query_params["t"] = _issue_session_token(db, _li_user)
                         st.rerun()
                     else:
                         _otp = _make_otp()
@@ -1416,7 +1535,7 @@ if "active_user" not in st.session_state:
                             # Email failed — log in directly with a warning
                             st.session_state.active_user = _li_user
                             st.session_state.is_guest    = False
-                            st.query_params["u"] = _li_user
+                            st.query_params["t"] = _issue_session_token(db, _li_user)
                             st.warning("Verification email couldn't be sent — logged in directly.")
                             st.rerun()
 
@@ -1439,7 +1558,7 @@ if "active_user" not in st.session_state:
                     st.session_state.active_user = _pending
                     st.session_state.is_guest    = False
                     st.session_state["li_state"] = "idle"
-                    st.query_params["u"] = _pending
+                    st.query_params["t"] = _issue_session_token(db, _pending)
                     for k in ["li_otp","li_pending","li_otp_ts"]: st.session_state.pop(k, None)
                     st.rerun()
                 else:
@@ -1548,6 +1667,11 @@ if "active_user" not in st.session_state:
                     _new_u["password"]   = hash_pw(_sp["pw"])
                     _new_u["email"]      = _sp["email"]
                     _new_u["created_at"] = _t.strftime("%Y-%m-%d")
+                    # Auto-set to exactly 10/day if promo is currently active
+                    if db.get("_free_pro_week_", {}).get("active", False):
+                        from datetime import date, timedelta
+                        _new_u["qs_limit"]      = 10
+                        _new_u["promo_expiry"]  = (date.today() + timedelta(days=7)).isoformat()
                     db[_sp["username"]] = _new_u
                     save_db(db)
                     st.session_state.active_user = _sp["username"]
@@ -2095,6 +2219,15 @@ with st.sidebar:
 
     st.divider()
     if st.button("🚪 Logout", use_container_width=True):
+        # Invalidate the server-side session token so old auto-login links stop working
+        try:
+            _logout_user = st.session_state.get("active_user")
+            if _logout_user and _logout_user in db:
+                db[_logout_user]["session_token"] = ""
+                save_db(db)
+        except Exception:
+            pass
+        st.query_params.clear()
         for k in list(st.session_state.keys()): del st.session_state[k]
         st.rerun()
 
@@ -2246,12 +2379,7 @@ if st.session_state.friend_chat_trigger:
             st.session_state.chat_hist.append(("assistant", _ans))
             st.session_state.gemini_hist.append({"role": "user",  "parts": [_trigger]})
             st.session_state.gemini_hist.append({"role": "model", "parts": [_ans]})
-            # Deduct one question
-            if u_data.get("qs_limit", 0) > 0:
-                u_data["qs_limit"] -= 1
-                if user != "_guest_":
-                    db[user] = u_data
-                    save_db(db)
+            # Question already deducted automatically inside call_gemini()
         except Exception as _lfe:
             st.session_state.chat_hist.append(("assistant", f"Sorry, I couldn't get an answer right now. Try asking in the Chat tab!"))
     else:
@@ -2797,10 +2925,7 @@ if st.session_state.get("show_office_group"):
                     try:
                         sys_p = KOHINOOR_BRAIN
                         ans   = call_gemini(model, sys_p, og_question.strip(), [])
-                        u_data["qs_limit"] = max(0, u_data.get("qs_limit", 0) - 1)
-                        if user != "_guest_":
-                            db[user] = u_data
-                            save_db(db)
+                        # Question already deducted automatically inside call_gemini()
                         entry = {"by": user, "q": og_question.strip(), "a": ans, "ts": time.time()}
                         og_data[group_id]["qa_log"] = og_data[group_id].get("qa_log", []) + [entry]
                         og_data[group_id]["members"][user]["last_active"] = time.time()
@@ -3262,14 +3387,9 @@ with tab_chat:
                     st.session_state.gemini_hist = st.session_state.gemini_hist[-20:]
 
                 if not is_guest:
-                    # Hard enforce: clamp to 0 minimum, persist immediately
-                    u_data["qs_limit"] = max(0, u_data["qs_limit"] - 1)
-                    u_data["streak"]   += 1
-                    u_data["badge"]     = badge_for(u_data["streak"])
-                    # Write back to db dict AND disk so sidebar pill refreshes
-                    db[user] = u_data
-                    save_db(db)
-                    # Also update session state reference so current render is correct
+                    # Question already deducted automatically inside stream_gemini();
+                    # refresh u_data from db so streak/badge shown below are accurate
+                    u_data = get_user(db, user)
                     st.session_state.db = db
 
                 # ── AUTO-NAME & SAVE CHAT ──────────────────────────────────
@@ -3310,9 +3430,10 @@ with tab_chat:
                         st.session_state.chat_hist.append(("assistant", ra))
                         st.session_state.gemini_hist.append({"role":"user",  "parts":[f"Re-explain: {user_query}"]})
                         st.session_state.gemini_hist.append({"role":"model", "parts":[ra]})
+                        # Question already deducted automatically inside stream_gemini()
                         if not is_guest:
-                            u_data["qs_limit"] = max(0, u_data["qs_limit"] - 1)
-                            db[user] = u_data; save_db(db); st.session_state.db = db
+                            u_data = get_user(db, user)
+                            st.session_state.db = db
 
                 st.session_state["last_followups"] = get_followups(model, user_query, full_answer)
 
@@ -3329,7 +3450,8 @@ with tab_chat:
                             Our AI is running on community support. Your donations directly keep 
                             Kohinoor AI alive and free for everyone. 🙏<br><br>
                             <b style="color:#F0C040;">Please donate to keep the AI running:</b><br>
-                            <span style="color:#4CAF50;font-size:1rem;font-weight:700;">UPI: arjun.fernandes.ahs@okicici</span>
+                            <span style="color:#4CAF50;font-size:1rem;font-weight:700;">UPI: arjun.fernandes.ahs@okicici</span><br><br>
+                            <span style="color:#9A8A70;font-size:0.78rem;">Please try again — if it still doesn't work, we're already on it and working to fix it. 🙏</span>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
@@ -3359,11 +3481,10 @@ with tab_chat:
                         st.session_state.gemini_hist.append({"role":"user",  "parts":[q]})
                         st.session_state.gemini_hist.append({"role":"model", "parts":[fa]})
                         st.session_state["last_followups"] = get_followups(model, q, fa)
+                        # Question already deducted automatically inside stream_gemini()
                         if not is_guest:
-                            u_data["qs_limit"] = max(0, u_data["qs_limit"] - 1)
-                            u_data["streak"]  += 1
-                            u_data["badge"]    = badge_for(u_data["streak"])
-                            save_db(db)
+                            u_data = get_user(db, user)
+                            st.session_state.db = db
                     st.rerun()
 
     if st.session_state.chat_hist:
@@ -4316,10 +4437,10 @@ Your personality:
             st.session_state.lab_partner_gemini.append({"role":"model","parts":[full]})
             if len(st.session_state.lab_partner_gemini) > 30:
                 st.session_state.lab_partner_gemini = st.session_state.lab_partner_gemini[-30:]
+            # Question already deducted automatically inside stream_gemini()
             if not is_guest:
-                u_data["qs_limit"] = max(0, u_data["qs_limit"] - 1)
-                u_data["qs_limit"] = max(0, u_data["qs_limit"] - 1)
-                db[user] = u_data; save_db(db); st.session_state.db = db
+                u_data = get_user(db, user)
+                st.session_state.db = db
             st.rerun()
 
         if st.session_state.lab_partner_hist:
@@ -4623,7 +4744,8 @@ with tab_learn:
             st.session_state.mhist.append(("assistant",fa))
             st.session_state.mgem.append({"role":"user","parts":[mq]}); st.session_state.mgem.append({"role":"model","parts":[fa]})
             if len(st.session_state.mgem)>30: st.session_state.mgem=st.session_state.mgem[-30:]
-            if not is_guest: u_data["qs_limit"]=max(0,u_data["qs_limit"]-1); save_db(db)
+            # Question already deducted automatically inside stream_gemini()
+            if not is_guest: u_data = get_user(db, user); st.session_state.db = db
         if st.session_state.mhist:
             if st.button("🗑️ New session",key="clrment"): st.session_state.mhist=[]; st.session_state.mgem=[]; st.rerun()
 
@@ -4967,7 +5089,8 @@ Stay in character but be encouraging and educational."""
             st.session_state.ll_hist.append(("assistant",fa))
             st.session_state.ll_gem.append({"role":"user","parts":[ll_q]}); st.session_state.ll_gem.append({"role":"model","parts":[fa]})
             if len(st.session_state.ll_gem)>30: st.session_state.ll_gem=st.session_state.ll_gem[-30:]
-            if not is_guest: u_data["qs_limit"]=max(0,u_data["qs_limit"]-1); save_db(db)
+            # Question already deducted automatically inside stream_gemini()
+            if not is_guest: u_data = get_user(db, user); st.session_state.db = db
         if st.session_state.ll_hist:
             if st.button("🗑️ New conversation",key="clrll"): st.session_state.ll_hist=[]; st.session_state.ll_gem=[]; st.rerun()
 
@@ -5304,6 +5427,54 @@ with tab_settings:
             db.setdefault("_donation_total_", {})["hidden"] = not _don_hidden
             save_db(db)
             st.rerun()
+        st.markdown("---")
+
+        # ── 📊 Question Tracking Dashboard (local file only, never Firebase) ──
+        st.markdown("### 📊 Daily Question Tracker")
+        _qlog = _load_qlog()
+        _avail_dates = sorted(_qlog.keys(), reverse=True)
+        if not _avail_dates:
+            st.caption("No questions logged yet.")
+        else:
+            _sel_date = st.selectbox("Select date:", _avail_dates, key="qlog_date")
+            _day_data = _qlog.get(_sel_date, {})
+            _total_qs = sum(_day_data.values())
+            st.metric(f"Total questions on {_sel_date}", _total_qs)
+            if _day_data:
+                _sorted_users = sorted(_day_data.items(), key=lambda x: -x[1])
+                for _uname, _cnt in _sorted_users:
+                    st.markdown(f"- **@{_uname}** — {_cnt} question{'s' if _cnt != 1 else ''}")
+        st.markdown("---")
+
+        # ── 🎁 Set Everyone to Exactly 10 Questions/Day (Promo Week) ──
+        st.markdown("### 🎁 Promo Week — Exactly 10 Questions/Day (All Users)")
+        _promo_active = db.get("_free_pro_week_", {}).get("active", False)
+        _promo_start  = db.get("_free_pro_week_", {}).get("start_date", "")
+        if _promo_active:
+            st.success(f"✅ Promo week is ACTIVE — started {_promo_start}. Everyone (Free/Student/Pro) is capped at exactly 10 questions/day for 7 days.")
+            if st.button("🛑 End Promo Week", key="end_promo"):
+                db["_free_pro_week_"] = {"active": False, "start_date": _promo_start}
+                save_db(db)
+                st.rerun()
+        else:
+            st.caption("Click below to set every current user (and anyone who signs up during the next 7 days) to exactly 10 questions per day, regardless of their plan, starting today. Plan and other features stay unchanged.")
+            if st.button("🎉 Start 10-Questions Promo Week", key="start_promo"):
+                _today_str = _today_pt()
+                db["_free_pro_week_"] = {"active": True, "start_date": _today_str}
+                # Set immediately for all existing real users
+                from datetime import date, timedelta
+                _expiry = (date.today() + timedelta(days=7)).isoformat()
+                _PROMO_QS = 10
+                for _euser in list(db.keys()):
+                    if _euser.startswith("_"): continue
+                    _edata = db[_euser]
+                    if not isinstance(_edata, dict): continue
+                    _edata["qs_limit"] = _PROMO_QS
+                    _edata["promo_expiry"] = _expiry
+                    db[_euser] = _edata
+                save_db(db)
+                st.success(f"🎉 Promo activated — all {len([u for u in db if not u.startswith('_')])} users now set to exactly {_PROMO_QS} questions/day! Expires {_expiry}.")
+                st.rerun()
         st.markdown("---")
 
     s_tab1, s_tab2, s_tab3 = st.tabs(["✏️ Change Username", "🔑 Change Password", "📧 Change Email"])
